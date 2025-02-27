@@ -21,12 +21,15 @@ type PlayerInfo struct {
 
 	frames []*pb.FrameUpdate
 
-	selfChan      chan *pb.FrameUpdate
-	toOtherChan   map[int32]chan<- *pb.FrameUpdate
-	fromOtherChan map[int32]<-chan *pb.FrameUpdate
+	selfChan    <-chan *pb.FrameUpdate
+	toOtherChan map[int32]chan<- *pb.FrameUpdate
+	//fromOtherChan map[int32]<-chan *pb.FrameUpdate
 }
 
 func NewPlayerInfo(id int32) *PlayerInfo {
+	selfChan := make(chan *pb.FrameUpdate, 1000)
+	toOtherChan := make(map[int32]chan<- *pb.FrameUpdate)
+	toOtherChan[id] = selfChan
 	return &PlayerInfo{
 		id:           id,
 		initInfo:     nil,
@@ -35,9 +38,8 @@ func NewPlayerInfo(id int32) *PlayerInfo {
 
 		frames: make([]*pb.FrameUpdate, 0),
 
-		selfChan:      make(chan *pb.FrameUpdate, 1000),
-		toOtherChan:   make(map[int32]chan<- *pb.FrameUpdate),
-		fromOtherChan: make(map[int32]<-chan *pb.FrameUpdate),
+		selfChan:    selfChan,
+		toOtherChan: toOtherChan,
 	}
 }
 
@@ -50,7 +52,6 @@ func (p *PlayerInfo) SetInit(init *pb.ClientInit) {
 
 func (p *PlayerInfo) AddFrame(frame *pb.FrameUpdate) {
 	p.frames = append(p.frames, frame)
-	p.selfChan <- frame
 	for _, c := range p.toOtherChan {
 		c <- frame
 	}
@@ -115,7 +116,6 @@ func (s *TetrisService) tryMatch(playID int32) {
 				frameChan := make(chan *pb.FrameUpdate, 1000)
 				initChan := make(chan *pb.ClientInit, 1)
 
-				toInfo.fromOtherChan[id] = frameChan
 				toInfo.fromInitChan[id] = initChan
 				fromInfo.toOtherChan[opponentID] = frameChan
 				fromInfo.toInitChan[opponentID] = initChan
@@ -193,16 +193,10 @@ func (s *TetrisService) SyncFrame(req *pb.SyncFrameRequest, stream pb.TetrisServ
 	s.mu.Lock()
 	room := s.play2room[req.PlayerId]
 	selfChan := room.players[req.PlayerId].selfChan
-	otherChan := room.players[req.PlayerId].fromOtherChan
 	s.mu.Unlock()
 
 	for {
-		frames := make([]*pb.FrameUpdate, 0)
-		frames = append(frames, <-selfChan)
-		for _, c := range otherChan {
-			frames = append(frames, <-c)
-		}
-		reply := &pb.SyncFrameReply{Frames: frames}
+		reply := <-selfChan
 		stream.Send(reply)
 		slog.Info(fmt.Sprintf("SyncFrame %v", reply))
 	}
