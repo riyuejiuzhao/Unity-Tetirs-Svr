@@ -4,8 +4,6 @@ bin: go-proto
 go-proto:
 	protoc --go_out=./proto/ \
 		--go_opt=paths=source_relative \
-		--go-grpc_opt=paths=source_relative \
-		--go-grpc_out=./proto/ \
 		--proto_path=./proto \
 		./proto/tetris.proto
 
