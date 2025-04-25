@@ -3,7 +3,6 @@ package network
 import (
 	"context"
 	"net"
-	"time"
 
 	log "github.com/jeanphorn/log4go"
 	"github.com/xtaci/kcp-go"
@@ -40,22 +39,17 @@ func (m *Server) Server(kcpAddr string) error {
 				log.Error("接受连接失败: %v", err)
 				continue
 			}
-			NewConn(m, conn, m.handler).Do()
+			NewConn(m, conn, m.handler).Start()
 		}
 	}()
 
 	return nil
 }
 
-func NewServer(ctx context.Context, handler IConnHandler, kcpAddr string) Server {
+func NewServer(ctx context.Context, config *Config, handler IConnHandler, kcpAddr string) Server {
 	server := Server{
-		ctx: ctx,
-		config: &Config{
-			receiveChanSize: 1024,
-			receiveTimeout:  1 * time.Second,
-			sendChanSize:    1024,
-			sendTimeout:     1 * time.Second,
-		},
+		ctx:     ctx,
+		config:  config,
 		handler: handler,
 	}
 	server.Server(kcpAddr)

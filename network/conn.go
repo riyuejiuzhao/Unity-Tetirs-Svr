@@ -16,14 +16,28 @@ type IServer interface {
 	Config() *Config
 }
 
+type ConnMessage struct {
+	conn IConn
+	msg  *pb.MessageWrapper
+}
+
+func (m *ConnMessage) Msg() *pb.MessageWrapper {
+	return m.msg
+}
+
+func (m *ConnMessage) Conn() IConn {
+	return m.conn
+}
+
 type IConnHandler interface {
-	OnMessage(conn IConn, packet *pb.MessageWrapper)
+	Start()
+	HandleChan() chan<- *ConnMessage
 }
 
 type IConn interface {
 	SetHandler(hander IConnHandler)
-	Send(message *pb.MessageWrapper)
-	Do()
+	SendChan() chan<- *pb.MessageWrapper
+	Start()
 }
 
 type Conn struct {
@@ -33,13 +47,13 @@ type Conn struct {
 	conn    net.Conn
 	handler IConnHandler
 
-	wg          *sync.WaitGroup
-	receiveChan chan *pb.MessageWrapper
-	sendChan    chan *pb.MessageWrapper
+	wg *sync.WaitGroup
+	// receiveChan chan *pb.MessageWrapper
+	sendChan chan *pb.MessageWrapper
 }
 
-func (c *Conn) Send(message *pb.MessageWrapper) {
-	c.sendChan <- message
+func (c *Conn) SendChan() chan<- *pb.MessageWrapper {
+	return c.sendChan
 }
 
 func (c *Conn) SetHandler(handler IConnHandler) {
@@ -59,7 +73,7 @@ func (c *Conn) ReceiveLoop() {
 
 	buf := make([]byte, 1024)
 	for {
-		c.conn.SetReadDeadline(time.Now().Add(c.config.receiveTimeout))
+		c.conn.SetReadDeadline(time.Now().Add(c.config.ReceiveTimeout))
 		n, err := c.conn.Read(buf)
 		if err != nil {
 			log.Error("读取数据失败: %v", err)
@@ -73,7 +87,7 @@ func (c *Conn) ReceiveLoop() {
 			c.cancel()
 			break
 		}
-		c.receiveChan <- message
+		c.handler.HandleChan() <- &ConnMessage{conn: c, msg: message}
 	}
 }
 
@@ -92,7 +106,7 @@ func (c *Conn) SendLoop() {
 				c.cancel()
 				break
 			}
-			c.conn.SetWriteDeadline(time.Now().Add(c.config.sendTimeout))
+			c.conn.SetWriteDeadline(time.Now().Add(c.config.SendTimeout))
 			_, err = c.conn.Write(data)
 			if err != nil {
 				log.Error("写入数据失败: %v", err)
@@ -102,38 +116,25 @@ func (c *Conn) SendLoop() {
 	}
 }
 
-func (c *Conn) Do() {
+func (c *Conn) Start() {
 	go c.ReceiveLoop()
 	go c.SendLoop()
-	go func() {
-		defer func() {
-			c.Close()
-			c.wg.Wait()
-		}()
-		for {
-			select {
-			case <-c.ctx.Done():
-				return
-			case message := <-c.receiveChan:
-				c.handler.OnMessage(c, message)
-			}
-		}
-	}()
-
 }
 
 func NewConn(srv IServer, netConn net.Conn, handler IConnHandler) IConn {
 	config := srv.Config()
 	ctx, cancel := context.WithCancel(srv.Context())
+
 	conn := &Conn{
-		ctx:         ctx,
-		cancel:      cancel,
-		config:      config,
-		conn:        netConn,
-		handler:     handler,
-		wg:          &sync.WaitGroup{},
-		receiveChan: make(chan *pb.MessageWrapper, config.receiveChanSize),
-		sendChan:    make(chan *pb.MessageWrapper, config.sendChanSize),
+		ctx:      ctx,
+		cancel:   cancel,
+		config:   config,
+		conn:     netConn,
+		handler:  handler,
+		wg:       &sync.WaitGroup{},
+		sendChan: make(chan *pb.MessageWrapper, config.SendChanSize),
 	}
+
+	context.AfterFunc(ctx, conn.Close)
 	return conn
 }

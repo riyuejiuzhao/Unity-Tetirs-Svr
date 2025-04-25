@@ -3,9 +3,9 @@ package network
 import "time"
 
 type Config struct {
-	receiveChanSize int32
-	receiveTimeout  time.Duration
+	ReceiveChanSize int32
+	ReceiveTimeout  time.Duration
 
-	sendChanSize int32
-	sendTimeout  time.Duration
+	SendChanSize int32
+	SendTimeout  time.Duration
 }
