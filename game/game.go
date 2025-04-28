@@ -24,6 +24,7 @@ type GamePlayer struct {
 	ready           bool
 	lastFrameNumber int32 // 玩家最后确认的帧号
 	lastSentFrame   int32 // 最后成功发送的帧号
+	ended           bool  // 玩家是否已结束游戏
 }
 
 func (p *GamePlayer) AddInput(frame int32, op []byte) {
@@ -130,6 +131,71 @@ func (g *Game) handleInput(_ network.IConn, message *pb.C2S_Input) {
 	}
 }
 
+func (g *Game) handleGameEnd(_ network.IConn, message *pb.C2S_GameEnd) {
+	playerID := message.GetPlayerId()
+	endRequest := message.GetEndGame()
+
+	// 构造广播消息
+	broadcastMsg := &pb.MessageWrapper{
+		Msg: &pb.MessageWrapper_S2CGameEnd{
+			S2CGameEnd: &pb.S2C_GameEnd{
+				EndPlayer: playerID,
+				EndGame:   endRequest,
+				Payload:   message.GetPayload(),
+			},
+		},
+	}
+
+	// 广播给所有玩家
+	for _, p := range g.players {
+		select {
+		case p.conn.SendChan() <- broadcastMsg:
+		default:
+			log.Warn("Failed to send game end message to %s", p.playerID)
+		}
+	}
+
+	if endRequest {
+		// 强制结束游戏
+		g.endGame()
+		return
+	}
+
+	// 标记当前玩家已结束
+	if player, exists := g.players[playerID]; exists {
+		player.ended = true
+		log.Info("Player %s has ended the game", playerID)
+	}
+
+	// 检查是否所有玩家都已结束
+	if g.allPlayersEnded() {
+		log.Info("All players have ended, terminating game")
+		g.endGame()
+	}
+}
+
+func (g *Game) allPlayersEnded() bool {
+	for _, p := range g.players {
+		if !p.ended {
+			return false
+		}
+	}
+	return true
+}
+
+func (g *Game) endGame() {
+	g.status = GameOver
+	if g.ticker != nil {
+		g.ticker.Stop()
+	}
+	// 安全关闭消息通道
+	if g.messageChan != nil {
+		close(g.messageChan)
+		g.messageChan = nil
+	}
+	log.Info("Game %s ended", g.gameID)
+}
+
 func (g *Game) handlePlayingMessage(conn network.IConn, message *pb.MessageWrapper) {
 	switch msg := message.Msg.(type) {
 	case *pb.MessageWrapper_C2SInput:
@@ -138,13 +204,15 @@ func (g *Game) handlePlayingMessage(conn network.IConn, message *pb.MessageWrapp
 	case *pb.MessageWrapper_C2SHeartbeat:
 		log.Info("Heartbeat:%s received", msg.C2SHeartbeat.GetPlayerId())
 		return
+	case *pb.MessageWrapper_C2SGameEnd:
+		g.handleGameEnd(conn, msg.C2SGameEnd)
+		return
 	default:
 		log.Error("Unknown message type: %T", msg)
 	}
 }
 
 func (g *Game) tick() {
-
 	// 给每个接收玩家处理
 	for _, receiver := range g.players {
 		start := receiver.lastSentFrame + 1
