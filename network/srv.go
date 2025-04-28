@@ -46,12 +46,12 @@ func (m *Server) Server(kcpAddr string) error {
 	return nil
 }
 
-func NewServer(ctx context.Context, config *Config, handler IConnHandler, kcpAddr string) Server {
+func NewServer(ctx context.Context, config *Config, handler IConnHandler) Server {
 	server := Server{
 		ctx:     ctx,
 		config:  config,
 		handler: handler,
 	}
-	server.Server(kcpAddr)
+	// server.Server(kcpAddr)
 	return server
 }

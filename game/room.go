@@ -50,13 +50,13 @@ type UniqueIDRoomCreator struct {
 	nextID uint64 // 原子计数器
 }
 
-func (c *UniqueIDRoomCreator) CreateRoom() IRoom {
+func (c *UniqueIDRoomCreator) CreateRoom() (IRoom, error) {
 	c.nextID++
 	return &Room{
 		id:      fmt.Sprintf("%d", c.nextID),
 		status:  WaitingRoom,
 		players: make(map[string]IPlayer),
-	}
+	}, nil
 }
 
 type Room struct {

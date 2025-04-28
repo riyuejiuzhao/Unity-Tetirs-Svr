@@ -1,5 +1,5 @@
 bin: go-proto
-	go build .
+	go build cmd/main.go
 
 go-proto:
 	protoc --go_out=./proto/ \
@@ -9,3 +9,4 @@ go-proto:
 
 clean:
 	rm -rf proto/*.go
+	rm main
