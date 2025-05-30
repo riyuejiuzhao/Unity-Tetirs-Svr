@@ -5,7 +5,7 @@ go-proto:
 	protoc --go_out=./proto/ \
 		--go_opt=paths=source_relative \
 		--proto_path=./proto \
-		./proto/tetris.proto
+		./proto/*.proto
 
 clean:
 	rm -rf proto/*.go
