@@ -70,6 +70,7 @@ func NewGame(ctx context.Context, gameID string, config *network.Config, players
 		status:      WaitingGame,
 		players:     gamePlayers,
 		messageChan: make(chan *network.ConnMessage, config.ReceiveChanSize),
+		frameNumber: 0,
 	}
 }
 
