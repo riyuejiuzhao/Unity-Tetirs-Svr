@@ -18,9 +18,11 @@ type FrameData struct {
 }
 
 type GamePlayer struct {
-	playerID        string
-	conn            network.IConn
-	frames          map[int32]*FrameData
+	playerID string
+	conn     network.IConn
+	frames   map[int32]*FrameData
+	complete *pb.C2S_GameLoadComplete
+
 	ready           bool
 	lastFrameNumber int32 // 玩家最后确认的帧号
 	lastSentFrame   int32 // 最后成功发送的帧号
@@ -90,15 +92,26 @@ func (g *Game) HandleChan() chan<- *network.ConnMessage {
 func (g *Game) handleGameLoadComplete(message *pb.C2S_GameLoadComplete) {
 	playerID := message.GetPlayerId()
 	g.players[playerID].ready = true
+	g.players[playerID].complete = message
+
 	log.Info("Player %s is ready", playerID)
 	for _, p := range g.players {
 		if !p.ready {
 			return
 		}
 	}
+
+	reply := &pb.S2C_GameLoadComplete{
+		Msg: make([]*pb.C2S_GameLoadComplete, 0, len(g.players)),
+	}
+	for _, p := range g.players {
+		reply.Msg = append(reply.Msg, p.complete)
+	}
 	for _, p := range g.players {
 		p.conn.SendChan() <- &pb.MessageWrapper{
-			Msg: &pb.MessageWrapper_S2CGameLoadComplete{},
+			Msg: &pb.MessageWrapper_S2CGameLoadComplete{
+				S2CGameLoadComplete: reply,
+			},
 		}
 	}
 	g.status = PlayingGame
@@ -112,7 +125,7 @@ func (g *Game) handleWaitingMessage(_ network.IConn, message *pb.MessageWrapper)
 	case *pb.MessageWrapper_C2SGameLoadComplete:
 		g.handleGameLoadComplete(msg.C2SGameLoadComplete)
 	case *pb.MessageWrapper_C2SHeartbeat:
-		log.Info("Heartbeat:%s received", msg.C2SHeartbeat.GetPlayerId())
+		// log.Info("Heartbeat:%s received", msg.C2SHeartbeat.GetPlayerId())
 		return
 	default:
 		log.Error("Unknown message type: %T", msg)
@@ -203,7 +216,7 @@ func (g *Game) handlePlayingMessage(conn network.IConn, message *pb.MessageWrapp
 		g.handleInput(conn, msg.C2SInput)
 		return
 	case *pb.MessageWrapper_C2SHeartbeat:
-		log.Info("Heartbeat:%s received", msg.C2SHeartbeat.GetPlayerId())
+		// log.Info("Heartbeat:%s received", msg.C2SHeartbeat.GetPlayerId())
 		return
 	case *pb.MessageWrapper_C2SGameEnd:
 		g.handleGameEnd(conn, msg.C2SGameEnd)
@@ -216,42 +229,30 @@ func (g *Game) handlePlayingMessage(conn network.IConn, message *pb.MessageWrapp
 func (g *Game) tick() {
 	// 给每个接收玩家处理
 	for _, receiver := range g.players {
-		start := receiver.lastSentFrame + 1
+		start := receiver.lastSentFrame
 		end := g.frameNumber
 		if start > end {
 			continue
 		}
 
 		// 按玩家ID组织帧数据
-		playerFramesMap := make(map[string]*pb.S2C_PlayerFrames)
-
+		playerFrames := make([]*pb.S2C_PlayerFrames, 0, len(g.players))
 		// 收集所有玩家的帧数据（包括自己）
 		for _, player := range g.players {
 			var frames []*pb.S2C_Frame
-			for frame := start; frame <= end; frame++ {
-				if data, exists := player.frames[frame]; exists {
-					frames = append(frames, &pb.S2C_Frame{
-						FrameNumber: frame,
-						Operations:  data.Operations,
-					})
+			for frameNum := start; frameNum <= end; frameNum++ {
+				frame := &pb.S2C_Frame{
+					FrameNumber: frameNum,
 				}
-			}
-			if len(frames) > 0 {
-				playerFramesMap[player.playerID] = &pb.S2C_PlayerFrames{
-					PlayerId: player.playerID,
-					Frames:   frames,
+				if data, exists := player.frames[frameNum]; exists {
+					frame.Operations = data.Operations
 				}
+				frames = append(frames, frame)
 			}
-		}
-
-		if len(playerFramesMap) == 0 {
-			continue // 没有需要发送的数据
-		}
-
-		// 转换为slice
-		var playerFrames []*pb.S2C_PlayerFrames
-		for _, pf := range playerFramesMap {
-			playerFrames = append(playerFrames, pf)
+			playerFrames = append(playerFrames, &pb.S2C_PlayerFrames{
+				PlayerId: player.playerID,
+				Frames:   frames,
+			})
 		}
 
 		syncMsg := &pb.MessageWrapper{
@@ -265,7 +266,7 @@ func (g *Game) tick() {
 		select {
 		case receiver.conn.SendChan() <- syncMsg:
 			receiver.lastSentFrame = end
-			log.Debug("Sent %d player frames to %s", len(playerFrames), receiver.playerID)
+			// log.Info("Sent %d player frames to %s", len(playerFrames), receiver.playerID)
 		default:
 			log.Warn("Failed to send %d player frames to %s", len(playerFrames), receiver.playerID)
 		}
@@ -275,6 +276,7 @@ func (g *Game) tick() {
 
 // 游戏主循环
 func (g *Game) gameLoop() {
+	log.Info("Game %s started", g.gameID)
 	for {
 		switch g.status {
 		case WaitingGame:

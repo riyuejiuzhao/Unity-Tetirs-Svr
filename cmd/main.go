@@ -10,6 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	log "github.com/jeanphorn/log4go"
 )
 
 func main() {
@@ -28,12 +30,15 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := game.NewRoomManager(ctx, config, &game.UniqueIDRoomCreator{})
+	handler.Start()
 	server := network.NewServer(ctx, config, handler)
 	server.Server(kcpAddr)
 
 	// 设置信号处理
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	log.Info("服务器启动成功，监听地址: %s", kcpAddr)
 
 	// 等待终止信号
 	<-sigCh

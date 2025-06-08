@@ -76,7 +76,7 @@ func (c *Conn) ReceiveLoop() {
 		c.conn.SetReadDeadline(time.Now().Add(c.config.ReceiveTimeout))
 		n, err := c.conn.Read(buf)
 		if err != nil {
-			log.Error("读取数据失败: %v", err)
+			log.Error("连接超时中断: %v", err)
 			c.cancel()
 			break
 		}
@@ -87,6 +87,7 @@ func (c *Conn) ReceiveLoop() {
 			c.cancel()
 			break
 		}
+		// log.Info("接收到消息: %s", message)
 		c.handler.HandleChan() <- &ConnMessage{conn: c, msg: message}
 	}
 }
@@ -100,6 +101,7 @@ func (c *Conn) SendLoop() {
 		case <-c.ctx.Done():
 			return
 		case message := <-c.sendChan:
+			log.Info("发送消息: %s", message)
 			data, err := proto.Marshal(message)
 			if err != nil {
 				log.Error("序列化数据失败: %v", err)

@@ -40,14 +40,12 @@ func (m *RoomManager) broadcastRoomInfoChanged(roomID string, playerID string) {
 		},
 	}
 	for _, p := range players {
-		if p.ID() == playerID {
-			continue
-		}
 		p.Conn().SendChan() <- reply
 	}
 }
 
 func (m *RoomManager) handleEnterRoom(conn network.IConn, message *pb.C2S_EnterRoom) {
+	// log.Info("接收到消息: %s", message)
 	replyMsg := &pb.S2C_EnterRoom{}
 	roomID := message.GetRoomId()
 	playerID := message.GetPlayerId()
@@ -89,6 +87,7 @@ func (m *RoomManager) handleEnterRoom(conn network.IConn, message *pb.C2S_EnterR
 }
 
 func (m *RoomManager) handleCreateRoom(conn network.IConn, message *pb.C2S_CreateRoom) {
+	log.Info("接收到消息: %s", message)
 	replyMsg := &pb.S2C_CreateRoom{}
 
 	defer func() {
@@ -97,6 +96,7 @@ func (m *RoomManager) handleCreateRoom(conn network.IConn, message *pb.C2S_Creat
 				S2CCreateRoom: replyMsg,
 			},
 		}
+		log.Info("Sending reply: %v", reply)
 		conn.SendChan() <- reply
 	}()
 
@@ -132,6 +132,7 @@ func (m *RoomManager) handleCreateRoom(conn network.IConn, message *pb.C2S_Creat
 }
 
 func (m *RoomManager) handleStartGame(conn network.IConn, message *pb.C2S_StartGame) {
+	log.Info("接收到消息: %s", message)
 	replyMsg := &pb.S2C_StartGame{}
 	roomID := message.GetRoomId()
 
@@ -155,7 +156,7 @@ func (m *RoomManager) handleStartGame(conn network.IConn, message *pb.C2S_StartG
 		}
 	}()
 
-	r, ok := m.rooms[roomID]
+	_, ok := m.rooms[roomID]
 	if !ok {
 		log.Error("Room not found: %s", roomID)
 		replyMsg.Error = true
@@ -164,17 +165,18 @@ func (m *RoomManager) handleStartGame(conn network.IConn, message *pb.C2S_StartG
 	}
 
 	// Validate game start conditions
-	players := r.Players()
-	if len(players) < 2 {
-		replyMsg.Error = true
-		replyMsg.ErrorMsg = "Need at least 2 players to start"
-		return
-	}
+	// players := r.Players()
+	// if len(players) < 2 {
+	// 	replyMsg.Error = true
+	// 	replyMsg.ErrorMsg = "Need at least 2 players to start"
+	// 	return
+	// }
 
 	replyMsg.Error = false
 }
 
 func (m *RoomManager) handleExitRoom(conn network.IConn, message *pb.C2S_ExitRoom) {
+	log.Info("接收到消息: %s", message)
 	replyMsg := &pb.S2C_ExitRoom{}
 	roomID := message.GetRoomId()
 	playerID := message.GetPlayerId()
@@ -212,6 +214,7 @@ func (m *RoomManager) handleExitRoom(conn network.IConn, message *pb.C2S_ExitRoo
 
 func (m *RoomManager) handleMessage(conn network.IConn, packet *pb.MessageWrapper) bool {
 	message := packet.Msg
+	// log.Info("Received message: %T", message)
 	switch payload := message.(type) {
 	case *pb.MessageWrapper_C2SEnterRoom:
 		m.handleEnterRoom(conn, payload.C2SEnterRoom)
@@ -221,14 +224,17 @@ func (m *RoomManager) handleMessage(conn network.IConn, packet *pb.MessageWrappe
 		m.handleExitRoom(conn, payload.C2SExitRoom)
 	case *pb.MessageWrapper_C2SStartGame:
 		m.handleStartGame(conn, payload.C2SStartGame)
+	case *pb.MessageWrapper_C2SHeartbeat:
+		// Heartbeat message, no action needed
 	default:
-		log.Error("Unknown message type: %T", payload)
+		log.Error("Unknown message type: %s", payload)
 	}
 
 	return true
 }
 
 func (m *RoomManager) Start() {
+	// log.Info("room mgr start")
 	go func() {
 		for {
 			select {
@@ -244,10 +250,11 @@ func (m *RoomManager) Start() {
 
 func NewRoomManager(context context.Context, config *network.Config, creator IRoomCreator) *RoomManager {
 	return &RoomManager{
-		ctx:        context,
-		cfg:        config,
-		creator:    creator,
-		rooms:      make(map[string]IRoom),
-		handleChan: make(chan *network.ConnMessage, config.ReceiveChanSize),
+		ctx:         context,
+		cfg:         config,
+		creator:     creator,
+		rooms:       make(map[string]IRoom),
+		handleChan:  make(chan *network.ConnMessage, config.ReceiveChanSize),
+		player2room: make(map[string]IRoom),
 	}
 }
