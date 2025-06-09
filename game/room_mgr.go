@@ -40,6 +40,10 @@ func (m *RoomManager) broadcastRoomInfoChanged(roomID string, playerID string) {
 		},
 	}
 	for _, p := range players {
+		if p.ID() == playerID {
+			// Skip sending to the player who triggered the change
+			continue
+		}
 		p.Conn().SendChan() <- reply
 	}
 }
@@ -51,15 +55,15 @@ func (m *RoomManager) handleEnterRoom(conn network.IConn, message *pb.C2S_EnterR
 	playerID := message.GetPlayerId()
 
 	defer func() {
-		if !replyMsg.Error {
-			m.broadcastRoomInfoChanged(roomID, playerID)
-		}
 		reply := &pb.MessageWrapper{
 			Msg: &pb.MessageWrapper_S2CEnterRoom{
 				S2CEnterRoom: replyMsg,
 			},
 		}
 		conn.SendChan() <- reply
+		if !replyMsg.Error {
+			m.broadcastRoomInfoChanged(roomID, playerID)
+		}
 	}()
 
 	r, ok := m.rooms[roomID]
@@ -84,6 +88,17 @@ func (m *RoomManager) handleEnterRoom(conn network.IConn, message *pb.C2S_EnterR
 	}
 	m.player2room[playerID] = r
 	replyMsg.Error = false
+
+	players := r.Players()
+	playerIDs := make([]string, len(players))
+	for i, p := range players {
+		playerIDs[i] = p.ID()
+	}
+
+	replyMsg.Info = &pb.S2C_RoomInfoChanged{
+		RoomId:    roomID,
+		PlayerIds: playerIDs,
+	}
 }
 
 func (m *RoomManager) handleCreateRoom(conn network.IConn, message *pb.C2S_CreateRoom) {
@@ -126,8 +141,10 @@ func (m *RoomManager) handleCreateRoom(conn network.IConn, message *pb.C2S_Creat
 	}
 	m.player2room[playerID] = r
 
-	replyMsg.RoomId = r.ID()
-	replyMsg.PlayerId = playerID
+	replyMsg.Info = &pb.S2C_RoomInfoChanged{
+		RoomId:    r.ID(),
+		PlayerIds: []string{playerID},
+	}
 	replyMsg.Error = false
 }
 
