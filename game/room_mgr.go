@@ -181,14 +181,6 @@ func (m *RoomManager) handleStartGame(conn network.IConn, message *pb.C2S_StartG
 		return
 	}
 
-	// Validate game start conditions
-	// players := r.Players()
-	// if len(players) < 2 {
-	// 	replyMsg.Error = true
-	// 	replyMsg.ErrorMsg = "Need at least 2 players to start"
-	// 	return
-	// }
-
 	replyMsg.Error = false
 }
 

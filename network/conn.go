@@ -67,6 +67,10 @@ func (c *Conn) Close() {
 	}
 }
 
+// ReceiveLoop 监听接收数据
+// 并将接收到的数据发送给c.handler.HandleChan()
+// 如果接收超时或发生错误，则取消上下文
+// 并退出循环
 func (c *Conn) ReceiveLoop() {
 	c.wg.Add(1)
 	defer c.wg.Done()
@@ -92,6 +96,10 @@ func (c *Conn) ReceiveLoop() {
 	}
 }
 
+// SendLoop 监听发送数据
+// 从c.sendChan中获取消息，并将其发送到网络连接
+// 如果发送超时或发生错误，则取消上下文
+// 并退出循环
 func (c *Conn) SendLoop() {
 	c.wg.Add(1)
 	defer c.wg.Done()
